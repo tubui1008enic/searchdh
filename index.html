@@ -23,26 +23,13 @@
         <input 
           type="text" 
           id="apiUrl" 
-          placeholder="https://script.google.com/macros/s/YOUR_SCRIPT_ID/exec"
+          value="https://script.google.com/macros/s/AKfycbwG0bNXV5BJQYglU6PcPa4TiZuoJXfl4ImMrhOQgwrhBwCza_UKfz1L3guqunLKUrk/exec"
           class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
         >
         <p class="text-xs text-gray-500 mt-1">
-          💡 Dán URL Web App của bạn vào đây (xem hướng dẫn bên dưới)
+          ✅ URL đã được điền sẵn, click "Tải dữ liệu" bên dưới
         </p>
       </div>
-
-      <!-- Instructions -->
-      <details class="mb-4 bg-blue-50 border border-blue-200 rounded-lg p-4">
-        <summary class="cursor-pointer font-semibold text-blue-900">📖 Hướng dẫn setup (click để xem)</summary>
-        <ol class="mt-3 text-sm text-blue-800 space-y-2 list-decimal list-inside">
-          <li>Mở <a href="https://script.google.com" target="_blank" class="underline">script.google.com</a></li>
-          <li>Tạo "New Project" → Dán code từ artifact "Google Apps Script - Backend API (Fixed CORS)"</li>
-          <li>Click "Deploy" → "New deployment" → Chọn type: "Web app"</li>
-          <li>Execute as: "Me" | Who has access: "Anyone"</li>
-          <li>Click "Deploy" → Copy URL → Dán vào ô phía trên</li>
-          <li>Click "Tải dữ liệu" bên dưới</li>
-        </ol>
-      </details>
 
       <!-- Load Button -->
       <button 
@@ -126,6 +113,44 @@
       el.classList.remove('hidden');
     }
 
+    // ✅ BYPASS CORS - Fetch với mode: 'no-cors' (read-only)
+    async function fetchData(url) {
+      try {
+        // Thử fetch thông thường trước
+        const response = await fetch(url);
+        return await response.json();
+      } catch (corsError) {
+        console.log('CORS blocked, using no-cors mode...');
+        
+        // Nếu CORS lỗi, dùng iframe hack
+        return new Promise((resolve, reject) => {
+          const iframe = document.createElement('iframe');
+          iframe.style.display = 'none';
+          iframe.src = url;
+          
+          let timeout = setTimeout(() => {
+            document.body.removeChild(iframe);
+            reject(new Error('Timeout loading data'));
+          }, 30000);
+          
+          iframe.onload = () => {
+            try {
+              clearTimeout(timeout);
+              const content = iframe.contentWindow.document.body.textContent;
+              const data = JSON.parse(content);
+              document.body.removeChild(iframe);
+              resolve(data);
+            } catch (e) {
+              document.body.removeChild(iframe);
+              reject(e);
+            }
+          };
+          
+          document.body.appendChild(iframe);
+        });
+      }
+    }
+
     // Load data
     document.getElementById('loadBtn').addEventListener('click', async () => {
       const apiUrl = document.getElementById('apiUrl').value.trim();
@@ -137,24 +162,25 @@
       const btn = document.getElementById('loadBtn');
       btn.disabled = true;
       btn.textContent = '⏳ Đang tải...';
-      showStatus('Đang tải dữ liệu từ Google Sheets...', 'info');
+      showStatus('Đang tải dữ liệu từ Google Sheets... (có thể mất 10-30 giây)', 'info');
 
       try {
-        const response = await fetch(apiUrl + '?action=loadAll');
-        const result = await response.json();
+        const result = await fetchData(apiUrl + '?action=loadAll');
 
         if (result.success) {
           allData = result.data;
           showStatus(`✅ Tải thành công ${result.totalRows.toLocaleString()} đơn hàng!`, 'success');
           
           document.getElementById('totalRows').textContent = result.totalRows.toLocaleString();
+          document.getElementById('totalSheets').textContent = new Set(result.data.map(d => d.sheetName)).size;
           document.getElementById('statsBox').classList.remove('hidden');
           document.getElementById('searchSection').classList.remove('hidden');
         } else {
           showStatus('❌ Lỗi: ' + result.error, 'error');
         }
       } catch (error) {
-        showStatus('❌ Lỗi kết nối: ' + error.message, 'error');
+        showStatus('❌ Lỗi kết nối: ' + error.message + '. Vui lòng thử lại!', 'error');
+        console.error('Error:', error);
       }
 
       btn.disabled = false;
@@ -215,7 +241,7 @@
           </div>
 
           <div id="editForm-${idx}" class="hidden mt-4 bg-gray-50 p-4 rounded-lg max-h-96 overflow-y-auto">
-            <h3 class="font-bold text-gray-800 mb-3">Chỉnh sửa dữ liệu (43 cột):</h3>
+            <h3 class="font-bold text-gray-800 mb-3">Chỉnh sửa dữ liệu:</h3>
             <div class="space-y-3">
               ${COLUMN_NAMES.map((name, colIdx) => `
                 <div class="flex items-start gap-2">
@@ -250,7 +276,6 @@
     window.toggleEdit = function(idx) {
       const form = document.getElementById(`editForm-${idx}`);
       if (form.classList.contains('hidden')) {
-        // Hide other forms
         document.querySelectorAll('[id^="editForm-"]').forEach(f => f.classList.add('hidden'));
         form.classList.remove('hidden');
         currentEditingIndex = idx;
@@ -274,7 +299,6 @@
         return;
       }
 
-      // Get all results from current display
       const results = allData.filter(item => {
         const phone = document.getElementById('phoneInput').value.trim().replace(/\s/g, '');
         const itemPhone = (item.data[18] || '').toString().replace(/\s/g, '');
@@ -283,7 +307,6 @@
 
       const result = results[idx];
       
-      // Collect updated data
       const updatedData = [];
       for (let colIdx = 0; colIdx < COLUMN_NAMES.length; colIdx++) {
         const input = document.getElementById(`input-${idx}-${colIdx}`);
@@ -310,7 +333,6 @@
         if (saveResult.success) {
           showStatus('✅ Lưu thành công!', 'success');
           
-          // Update local data
           const dataIndex = allData.findIndex(
             item => item.fileId === result.fileId && 
                     item.sheetName === result.sheetName && 
@@ -320,10 +342,7 @@
             allData[dataIndex].data = updatedData;
           }
           
-          // Hide edit form
           cancelEdit(idx);
-          
-          // Refresh display
           document.getElementById('searchBtn').click();
         } else {
           showStatus('❌ Lỗi lưu: ' + saveResult.error, 'error');
