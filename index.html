@@ -15,6 +15,14 @@
         <h1 class="text-3xl font-bold text-gray-800">Tìm kiếm & Chỉnh sửa Đơn hàng</h1>
       </div>
 
+      <!-- Warning -->
+      <div class="mb-4 bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+        <p class="text-sm text-yellow-800">
+          ⚠️ <strong>Lưu ý:</strong> Để tránh lỗi CORS, hệ thống sử dụng CORS proxy. 
+          Để bảo mật tốt nhất, khuyến nghị chạy trên máy local.
+        </p>
+      </div>
+
       <!-- API URL Config -->
       <div class="mb-4">
         <label class="block text-sm font-semibold text-gray-700 mb-2">
@@ -26,9 +34,6 @@
           value="https://script.google.com/macros/s/AKfycbwG0bNXV5BJQYglU6PcPa4TiZuoJXfl4ImMrhOQgwrhBwCza_UKfz1L3guqunLKUrk/exec"
           class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
         >
-        <p class="text-xs text-gray-500 mt-1">
-          ✅ URL đã được điền sẵn, click "Tải dữ liệu" bên dưới
-        </p>
       </div>
 
       <!-- Load Button -->
@@ -101,7 +106,9 @@
     let allData = [];
     let currentEditingIndex = null;
 
-    // Show status
+    // ✅ CORS Proxy - Sử dụng AllOrigins (miễn phí)
+    const CORS_PROXY = 'https://api.allorigins.win/raw?url=';
+
     function showStatus(message, type = 'info') {
       const el = document.getElementById('statusMessage');
       el.className = `p-4 rounded-lg mt-4 ${
@@ -113,45 +120,7 @@
       el.classList.remove('hidden');
     }
 
-    // ✅ BYPASS CORS - Fetch với mode: 'no-cors' (read-only)
-    async function fetchData(url) {
-      try {
-        // Thử fetch thông thường trước
-        const response = await fetch(url);
-        return await response.json();
-      } catch (corsError) {
-        console.log('CORS blocked, using no-cors mode...');
-        
-        // Nếu CORS lỗi, dùng iframe hack
-        return new Promise((resolve, reject) => {
-          const iframe = document.createElement('iframe');
-          iframe.style.display = 'none';
-          iframe.src = url;
-          
-          let timeout = setTimeout(() => {
-            document.body.removeChild(iframe);
-            reject(new Error('Timeout loading data'));
-          }, 30000);
-          
-          iframe.onload = () => {
-            try {
-              clearTimeout(timeout);
-              const content = iframe.contentWindow.document.body.textContent;
-              const data = JSON.parse(content);
-              document.body.removeChild(iframe);
-              resolve(data);
-            } catch (e) {
-              document.body.removeChild(iframe);
-              reject(e);
-            }
-          };
-          
-          document.body.appendChild(iframe);
-        });
-      }
-    }
-
-    // Load data
+    // Load data với CORS proxy
     document.getElementById('loadBtn').addEventListener('click', async () => {
       const apiUrl = document.getElementById('apiUrl').value.trim();
       if (!apiUrl) {
@@ -162,10 +131,13 @@
       const btn = document.getElementById('loadBtn');
       btn.disabled = true;
       btn.textContent = '⏳ Đang tải...';
-      showStatus('Đang tải dữ liệu từ Google Sheets... (có thể mất 10-30 giây)', 'info');
+      showStatus('Đang tải dữ liệu qua CORS proxy... (có thể mất 20-40 giây)', 'info');
 
       try {
-        const result = await fetchData(apiUrl + '?action=loadAll');
+        const proxyUrl = CORS_PROXY + encodeURIComponent(apiUrl + '?action=loadAll');
+        const response = await fetch(proxyUrl);
+        const text = await response.text();
+        const result = JSON.parse(text);
 
         if (result.success) {
           allData = result.data;
@@ -179,7 +151,7 @@
           showStatus('❌ Lỗi: ' + result.error, 'error');
         }
       } catch (error) {
-        showStatus('❌ Lỗi kết nối: ' + error.message + '. Vui lòng thử lại!', 'error');
+        showStatus('❌ Lỗi: ' + error.message + '. Khuyến nghị chạy trên local server!', 'error');
         console.error('Error:', error);
       }
 
@@ -210,7 +182,6 @@
       }
     });
 
-    // Display results
     function displayResults(results) {
       const list = document.getElementById('resultsList');
       list.innerHTML = '';
@@ -219,7 +190,6 @@
       results.forEach((result, idx) => {
         const div = document.createElement('div');
         div.className = 'border border-gray-200 rounded-lg p-4';
-        div.id = `result-${idx}`;
         
         div.innerHTML = `
           <div class="flex items-center justify-between mb-3 pb-3 border-b">
@@ -234,32 +204,32 @@
           </div>
           
           <div class="grid grid-cols-2 gap-4 mb-3">
-            <div><span class="font-semibold">Tên KH:</span> ${result.data[17] || 'N/A'}</div>
-            <div><span class="font-semibold">SĐT:</span> <span class="font-mono">${result.data[18] || 'N/A'}</span></div>
-            <div><span class="font-semibold">Mã vận đơn:</span> ${result.data[0] || 'N/A'}</div>
+            <div><span class="font-semibold">Tên:</span> ${result.data[17] || 'N/A'}</div>
+            <div><span class="font-semibold">SĐT:</span> ${result.data[18] || 'N/A'}</div>
+            <div><span class="font-semibold">Mã VĐ:</span> ${result.data[0] || 'N/A'}</div>
             <div><span class="font-semibold">Tình trạng:</span> ${result.data[5] || 'N/A'}</div>
           </div>
 
           <div id="editForm-${idx}" class="hidden mt-4 bg-gray-50 p-4 rounded-lg max-h-96 overflow-y-auto">
-            <h3 class="font-bold text-gray-800 mb-3">Chỉnh sửa dữ liệu:</h3>
+            <h3 class="font-bold mb-3">Chỉnh sửa:</h3>
             <div class="space-y-3">
               ${COLUMN_NAMES.map((name, colIdx) => `
-                <div class="flex items-start gap-2">
-                  <label class="w-48 text-sm font-medium text-gray-700 pt-2 flex-shrink-0">${name}:</label>
+                <div class="flex gap-2">
+                  <label class="w-48 text-sm font-medium pt-2">${name}:</label>
                   <input 
                     type="text" 
                     id="input-${idx}-${colIdx}"
                     value="${(result.data[colIdx] || '').toString().replace(/"/g, '&quot;')}"
-                    class="flex-1 px-3 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500"
+                    class="flex-1 px-3 py-2 border rounded focus:ring-2 focus:ring-indigo-500"
                   >
                 </div>
               `).join('')}
             </div>
             <div class="flex gap-3 mt-4">
-              <button onclick="saveEdit(${idx})" class="flex-1 bg-green-600 text-white py-2 rounded-lg hover:bg-green-700 font-semibold">
-                💾 Lưu thay đổi
+              <button onclick="saveEdit(${idx})" class="flex-1 bg-green-600 text-white py-2 rounded-lg hover:bg-green-700">
+                💾 Lưu
               </button>
-              <button onclick="cancelEdit(${idx})" class="flex-1 bg-gray-500 text-white py-2 rounded-lg hover:bg-gray-600 font-semibold">
+              <button onclick="cancelEdit(${idx})" class="flex-1 bg-gray-500 text-white py-2 rounded-lg hover:bg-gray-600">
                 ❌ Hủy
               </button>
             </div>
@@ -272,33 +242,20 @@
       document.getElementById('resultsSection').classList.remove('hidden');
     }
 
-    // Toggle edit mode
     window.toggleEdit = function(idx) {
       const form = document.getElementById(`editForm-${idx}`);
+      document.querySelectorAll('[id^="editForm-"]').forEach(f => f.classList.add('hidden'));
       if (form.classList.contains('hidden')) {
-        document.querySelectorAll('[id^="editForm-"]').forEach(f => f.classList.add('hidden'));
         form.classList.remove('hidden');
-        currentEditingIndex = idx;
-      } else {
-        form.classList.add('hidden');
-        currentEditingIndex = null;
       }
     };
 
-    // Cancel edit
     window.cancelEdit = function(idx) {
       document.getElementById(`editForm-${idx}`).classList.add('hidden');
-      currentEditingIndex = null;
     };
 
-    // Save edit
     window.saveEdit = async function(idx) {
       const apiUrl = document.getElementById('apiUrl').value.trim();
-      if (!apiUrl) {
-        alert('Thiếu URL API!');
-        return;
-      }
-
       const results = allData.filter(item => {
         const phone = document.getElementById('phoneInput').value.trim().replace(/\s/g, '');
         const itemPhone = (item.data[18] || '').toString().replace(/\s/g, '');
@@ -306,7 +263,6 @@
       });
 
       const result = results[idx];
-      
       const updatedData = [];
       for (let colIdx = 0; colIdx < COLUMN_NAMES.length; colIdx++) {
         const input = document.getElementById(`input-${idx}-${colIdx}`);
@@ -332,7 +288,6 @@
 
         if (saveResult.success) {
           showStatus('✅ Lưu thành công!', 'success');
-          
           const dataIndex = allData.findIndex(
             item => item.fileId === result.fileId && 
                     item.sheetName === result.sheetName && 
@@ -341,24 +296,21 @@
           if (dataIndex !== -1) {
             allData[dataIndex].data = updatedData;
           }
-          
           cancelEdit(idx);
           document.getElementById('searchBtn').click();
         } else {
-          showStatus('❌ Lỗi lưu: ' + saveResult.error, 'error');
+          showStatus('❌ Lỗi: ' + saveResult.error, 'error');
         }
       } catch (error) {
         showStatus('❌ Lỗi: ' + error.message, 'error');
       }
     };
 
-    // Clear results
     document.getElementById('clearBtn').addEventListener('click', () => {
       document.getElementById('resultsSection').classList.add('hidden');
       document.getElementById('phoneInput').value = '';
     });
 
-    // Enter to search
     document.getElementById('phoneInput').addEventListener('keypress', (e) => {
       if (e.key === 'Enter') document.getElementById('searchBtn').click();
     });
